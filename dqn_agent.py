@@ -17,11 +17,10 @@ LR = 5e-4               # learning rate
 UPDATE_EVERY = 4        # how often to update the network
 
 
-
 class Agent():
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, seed, device="cpu"):
+    def __init__(self, state_size, action_size, seed, device="cpu", use_double_dqn=False, use_priorities=False):
         """Initialize an Agent object.
         
         Params
@@ -47,7 +46,9 @@ class Agent():
 
         # Initialize copute device (cpu or gpu)
         self.device = torch.device(device)
-    
+
+        self.qtargets_next = self.double_dqn_qtargets_next if use_double_dqn else self.
+
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
         self.memory.add(state, action, reward, next_state, done)
@@ -57,6 +58,8 @@ class Agent():
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > BATCH_SIZE:
+                # Experience Replay: Break correlation between consequitive experience
+                # tuples by sampling them randomly out of order
                 experiences = self.memory.sample()
                 self.learn(experiences, GAMMA)
 
@@ -80,6 +83,13 @@ class Agent():
         else:
             return random.choice(np.arange(self.action_size))
 
+    def dqn_qtargets_next(self, next_states):
+        return self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+
+    def double_dqn_qtargets_next(self, next_states):
+        next_actions = self.qnetwork_local(next_states).detach().argmax(1)
+        return self.qnetwork_target(next_states).detach()[next_actions].unsqueeze(1)
+
     def learn(self, experiences, gamma):
         """Update value parameters using given batch of experience tuples.
 
@@ -91,7 +101,7 @@ class Agent():
         states, actions, rewards, next_states, dones = experiences
 
         # Get max predicted Q values (for next states) from target model
-        Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+        Q_targets_next = self.qtargets_next(next_states)
         # Compute Q targets for current states 
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
 
@@ -111,6 +121,8 @@ class Agent():
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target
+        Fixed Q-Targets: Breaks the correlation of learning target with
+        parameters we are changing (moving target)
 
         Params
         ======
